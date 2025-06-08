@@ -1,7 +1,7 @@
 Not sure where this project will go, and I'm sure it will change drastically as I go, but here's my initial plan.
 
 Game overview:
-Mutlitplayer missle defense game in a 2D hex grid world where missle will rain down and you must
+Multiplayer missle defense game in a 2D hex grid world where missles will rain down and you must
 use the tools available to protect the your city.
 The game will be in time steps.
 The players will be able to select actions to take for each time step.
@@ -11,7 +11,7 @@ It's not quite real-time, but not really turn based either, somewhat of a middle
 Development overview:
 1. Create an initial client/server model for the game to be constructed around.
 2. Have a 'headless' version of the game for debugging purposes then...
-3. Use OpenGL to create the visuals for the game one I can have communication between multiple players/server.
+3. Use OpenGL to create the visuals for the game once I can have communication between multiple players/server.
 4. Implement features.
 
 Notes:
@@ -19,3 +19,7 @@ It's my current understanding that the development path I've chosen will lead to
 This is a tradeoff I'm willing to make for now, but maybe I will address that in the future.
 Yes, I know there is a LOT of learning and development to get done along the way.
 Each bullet point above is likely it's own project with sub-points that I will define as I dive in.
+
+Additions:
+Various types of rockets
+2v2 pvp mode
