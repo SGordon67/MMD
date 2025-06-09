@@ -1,8 +1,7 @@
 Not sure where this project will go, and I'm sure it will change drastically as I go, but here's my initial plan.
 
 Game overview:
-Multiplayer missle defense game in a 2D hex grid world where missles will rain down and you must
-use the tools available to protect the your city.
+Multiplayer missle defense game in a 2D hex grid world where missles will rain down and you must use the tools available to protect the your city.
 The game will be in time steps.
 The players will be able to select actions to take for each time step.
 Actions must be able to select and execute quickly, as I'm imagining a time step of two or three seconds.

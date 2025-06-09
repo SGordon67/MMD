@@ -5,6 +5,7 @@
 #include <ncurses.h>
 #include <string>
 #include <poll.h>
+#include <arpa/inet.h>
 
 int main(){
 	initscr();
@@ -21,7 +22,7 @@ int main(){
 	sockaddr_in serverAddress;
 	serverAddress.sin_family = AF_INET;
 	serverAddress.sin_port = htons(8080);
-	serverAddress.sin_addr.s_addr = INADDR_ANY;
+	inet_pton(AF_INET, "127.0.0.1", &serverAddress.sin_addr);
 
 	// sending connection request
 	connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
@@ -40,8 +41,9 @@ int main(){
 			int bytes = read(clientSocket, buffer, sizeof(buffer));
 			buffer[bytes] = '\0';
 			if(bytes > 0){
-				mvprintw(5, 0, "Update from server! Most recent press:");
-				mvprintw(6, 0, "%s", buffer);
+				mvprintw(5, 0, "Update from server!");
+				mvprintw(6, 0, "Most Rencent press:");
+				mvprintw(7, 0, "%s", buffer);
 				refresh();
 			}
 		}
