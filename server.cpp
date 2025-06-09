@@ -2,22 +2,14 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <ncurses.h>
 #include <string>
 #include <chrono>
 #include <poll.h>
 #include <vector>
 #include <array>
+#include <iostream>
 
-// TODO allow for multiple clients
 int main(){
-	initscr();
-	cbreak();
-	noecho();
-	scrollok(stdscr, TRUE);
-	nodelay(stdscr, TRUE);
-	refresh();
-	
 	// delay for game updates
 	auto updateDelay = std::chrono::seconds(3);
 
@@ -30,7 +22,7 @@ int main(){
 	// create socket
 	int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if(serverSocket < 0){
-		endwin();
+		// endwin();
 		perror("socket creation failed");
 		return 1;
 	}
@@ -43,7 +35,7 @@ int main(){
 
 	// binding the socket
 	if(bind(serverSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) > 0){
-		endwin();
+		// endwin();
 		perror("Bind failed");
 		close(serverSocket);
 		return 1;
@@ -51,7 +43,7 @@ int main(){
 
 	// listening to the assigned socket
 	if(listen(serverSocket, 5) < 0){
-		endwin();
+		// endwin();
 		perror("Listen failed");
 		close(serverSocket);
 		return 1;
@@ -60,43 +52,41 @@ int main(){
 	// set up a vector to handle multiple clients
 	std::vector<pollfd> mySockets;
 	mySockets.push_back({serverSocket, POLLIN, 0});
-	// accept clients
+
 	while(true){
 		int ret = poll(mySockets.data(), mySockets.size(), 100);
-		if(ret < 0){
-			perror("Poll failed");
-			break;
-		}
-
-		// check for a new connection
-		if(mySockets[0].revents & POLLIN){
-			int newClient = accept(serverSocket, nullptr, nullptr);
-			if(newClient >= 0){
-				mySockets.push_back({newClient, POLLIN, 0});
-				buffers.push_back({});
-				mvprintw(0, 0, "New client connected: %d", newClient);
-				refresh();
+		if(ret > 0){
+			// check for a new connection
+			if(mySockets[0].revents & POLLIN){
+				int newClient = accept(serverSocket, nullptr, nullptr);
+				if(newClient >= 0){
+					mySockets.push_back({newClient, POLLIN, 0});
+					buffers.push_back({});
+					// refresh();
+				}
 			}
-		}
-
-		// if there are two players then continue on
-		if(mySockets.size() > 2) break;
-	}
-
-	while(true){
-		for(int i = 1; i < mySockets.size(); i++){
-			int ret = poll(mySockets.data(), mySockets.size(), 100);
-			if(ret > 0){
+			for(int i = mySockets.size() - 1; i >= 1; i--){
+				// detect hangup or disconnect error
+				if(mySockets[i].revents & (POLLHUP | POLLERR)){
+					std::cout << "[INFO] Client disconnected (poll flags): " << mySockets[i].fd << "\n";
+					close(mySockets[i].fd);
+					mySockets.erase(mySockets.begin() + i);
+					buffers.erase(buffers.begin() + i);
+					continue;
+				}
+				// check for readable input
 				if(mySockets[i].revents & POLLIN){
-					// mvprintw(10, 0, "TESTING IF WE CAN EVEN GET INPUT");
 					// Get input from client
 					int bytes = read(mySockets[i].fd, buffers[i].data(), buffers[i].size() - 1);
-					buffers[i][bytes] = '\0';
-					if(bytes > 0){
-						mvprintw(i+4, 0, "Client pressed:");
-						mvprintw(i+4, 16, "%s", buffers[i].data());
-						refresh();
+					if(bytes <= 0){
+						std::cout << "[INFO] Client disconnected (read failure): " << mySockets[i].fd << "\n";
+						close(mySockets[i].fd);
+						mySockets.erase(mySockets.begin() + i);
+						buffers.erase(buffers.begin() + i);
+						continue;
 					}
+					buffers[i][bytes] = '\0';
+					std::cout << "[INFO] Client " << i << " Pressed " << buffers[i].data() << "\n";
 				}
 			}
 		}
@@ -109,19 +99,9 @@ int main(){
 		}
 	}
 
-	endwin();
+	// endwin();
 	close(serverSocket);
 }
-
-
-
-
-
-
-
-
-
-
 
 
 

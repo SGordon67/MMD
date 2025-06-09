@@ -43,7 +43,7 @@ int main(){
 			if(bytes > 0){
 				mvprintw(5, 0, "Update from server!");
 				mvprintw(6, 0, "Most Rencent press:");
-				mvprintw(7, 0, "%s", buffer);
+				mvprintw(6, 26, "%s", buffer);
 				refresh();
 			}
 		}
@@ -52,13 +52,13 @@ int main(){
 		int input = getch();
 		if(input != ERR){
 			mvprintw(0, 0, "You Pressed:");
-			mvprintw(1, 0, "%c", char(input));
-			mvprintw(10, 0, "-------------");
+			mvprintw(0, 13, "%c", char(input));
+			mvprintw(10, 0, "Input--Detected");
 			refresh();
 			message = std::string(1, input);
 			send(clientSocket, message.c_str(), message.size(), 0);
 		}else{
-			mvprintw(10, 0, "Is it working");
+			mvprintw(10, 0, "----Waiting----");
 			refresh();
 		}
 	}
