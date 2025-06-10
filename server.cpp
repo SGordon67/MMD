@@ -12,10 +12,12 @@
 int main(){
 	// delay for game updates
 	auto updateDelay = std::chrono::seconds(3);
-
 	// Start the timer for sending updates to the client
 	auto last_sent = std::chrono::steady_clock::now();
 	
+	// Make sure to keep the server open until at lease one client has connected.
+	bool anyClientEverConnected = false;
+
 	// create a vector of buffers for each of the clients
 	std::vector<std::array<char, 1024>> buffers;
 
@@ -62,7 +64,7 @@ int main(){
 				if(newClient >= 0){
 					mySockets.push_back({newClient, POLLIN, 0});
 					buffers.push_back({});
-					// refresh();
+					anyClientEverConnected = true;
 				}
 			}
 			for(int i = mySockets.size() - 1; i >= 1; i--){
@@ -90,6 +92,11 @@ int main(){
 				}
 			}
 		}
+		// close the server if no clients remain
+		if(anyClientEverConnected && mySockets.size() == 1){
+			std::cout << "[INFO] All clients disconnected. Shutting down server.\n";
+			break;
+		}
 		auto now = std::chrono::steady_clock::now();
 		if(now - last_sent >= updateDelay){
 			for(int i = 1; i < mySockets.size(); i++){
@@ -99,8 +106,8 @@ int main(){
 		}
 	}
 
-	// endwin();
 	close(serverSocket);
+	return 0;
 }
 
 
