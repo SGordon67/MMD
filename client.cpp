@@ -6,6 +6,9 @@
 #include <string>
 #include <poll.h>
 #include <arpa/inet.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 int main(){
 	initscr();
@@ -40,12 +43,17 @@ int main(){
 			// Get input from server
 			int bytes = read(clientSocket, buffer, sizeof(buffer));
 			buffer[bytes] = '\0';
-			if(bytes > 0){
-				mvprintw(5, 0, "Update from server!");
-				mvprintw(6, 0, "Most Rencent press:");
-				mvprintw(6, 26, "%s", buffer);
+			if(bytes <= 0){
+				nodelay(stdscr, FALSE);
+				mvprintw(12, 0, "Server disconnected. Press any key to exit.");
 				refresh();
+				getch();
+				break;
 			}
+			mvprintw(5, 0, "Update from server!");
+			mvprintw(6, 0, "Most Rencent press:");
+			mvprintw(6, 21, "%s", buffer);
+			refresh();
 		}
 		// getting input
 		std::string message;
@@ -55,8 +63,14 @@ int main(){
 			mvprintw(0, 13, "%c", char(input));
 			mvprintw(10, 0, "Input--Detected");
 			refresh();
-			message = std::string(1, input);
+			// construct json to send to server based on input
+			json j;
+			j["type"] = "keypress";
+			j["value"] = std::string(1, input);
+			std::string message = j.dump();
 			send(clientSocket, message.c_str(), message.size(), 0);
+			// message = std::string(1, input);
+			// send(clientSocket, message.c_str(), message.size(), 0);
 		}else{
 			mvprintw(10, 0, "----Waiting----");
 			refresh();
