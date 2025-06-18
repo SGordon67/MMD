@@ -1,8 +1,3 @@
-// TODO:
-// 1. make server -> client communication into JSON
-//		^ currently broken even without json
-// 2. add keypress info to JSON structure
-// 3. client parse JSON from server
 #include <cstring>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -14,12 +9,110 @@
 #include <array>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <set>
 
 using json = nlohmann::json;
 
 struct ClientInfo{
     int fd;
     char last_input;
+};
+
+enum class hexState {player, ground, air, city, destroyed, blank, wall};
+
+char getHexRep(hexState myHex){
+    switch(myHex){
+        case hexState::air:
+            return 'A';
+            break;
+        case hexState::city:
+            return 'C';
+            break;
+        case hexState::player:
+            return 'P';
+            break;
+        case hexState::wall:
+            return 'W';
+            break;
+        default:
+            return '~';
+    }
+    return '!';
+}
+
+struct Hex{
+    int q; // columns
+    int r; // rows
+    bool hasMissile;
+    hexState state;
+
+    bool operator==(const Hex& other) const{
+        return (q == other.q && r == other.r);
+    }
+    Hex(){
+        this->q = 0;
+        this->r = 0;
+        this->hasMissile = false;
+        this->state = hexState::blank;
+    }
+    Hex(int a, int b, bool hasMissile, hexState state){
+        this->q = a;
+        this->r = b;
+        this->hasMissile = hasMissile;
+        this->state = state;
+    }
+};
+
+struct HexGrid{
+    int boardWidth;
+    int boardHeight;
+    std::vector<std::vector<Hex>> GB;
+
+    HexGrid(int w, int h){
+        this->boardWidth = w;
+        this->boardHeight = h;
+    }
+    void initializeDefaultBoard(){
+        this->GB.resize(boardWidth, std::vector<Hex>(boardHeight));
+        for(int y = 0; y < this->boardHeight; y++){
+            for(int x = 0; x < this->boardWidth; x++){
+                Hex newHex;
+                if(x == 0 || x == this->boardWidth - 1){
+                    newHex = Hex(x, y, false, hexState::wall);
+                }else if(y == this->boardHeight - 1){
+                    if(x == boardWidth/2){
+                        newHex = Hex(x, y, false, hexState::player);
+                    }else{
+                        newHex = Hex(x, y, false, hexState::city);
+                    }
+                }else{
+                    newHex = Hex(x, y, false, hexState::air);
+                }
+                this->GB[x][y] = newHex;
+            }
+        }
+    }
+    void printGrid(){
+        std::cout << "Game Board:\n";
+        for(int y = 0; y < this->boardHeight; y++){
+            std::string subRow1 = "";
+            std::string subRow2 = "";
+            for(int x = 0; x < this->boardWidth; x++){
+                if(!(x%2)){
+                    subRow1 += " ";
+                    subRow1.push_back(getHexRep(this->GB[x][y].state));
+                    subRow1 += " ";
+                    subRow2 += "   ";
+                }else{
+                    subRow1 += "   ";
+                    subRow2 += " ";
+                    subRow2.push_back(getHexRep(this->GB[x][y].state));
+                    subRow2 += " ";
+                }
+            }
+            std::cout << subRow1 << std::endl << subRow2 << std::endl;
+        }
+    }
 };
 
 int main(){
@@ -39,7 +132,6 @@ int main(){
         perror("socket creation failed");
         return 1;
     }
-
     int opt = 1;
     setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -63,6 +155,17 @@ int main(){
         return 1;
     }
 
+    // game logic and board creation
+    const int boardWidth = 17;
+    const int boardHeight = 10;
+
+    HexGrid gameBoard = HexGrid(boardWidth, boardHeight);
+    gameBoard.initializeDefaultBoard();
+
+    // testing printing the game board
+    gameBoard.printGrid();
+
+    // GAME LOOP
     while(true){
         std::vector<pollfd> pollFds;
         pollFds.push_back({serverSocket, POLLIN, 0});
