@@ -40,6 +40,44 @@ char getHexRep(hexState myHex){
     return '!';
 }
 
+struct coord{
+    int q;
+    int r;
+};
+enum class Direction{
+    SE = 0,
+    NE = 1,
+    N = 2,
+    NW = 3,
+    SW = 4,
+    S = 5
+};
+const coord nDiff[2][6] = {
+    // even columns
+    {{1,0}, {1,-1}, {0,-1}, {-1,-1}, {-1, 0}, {0, 1}},
+    // odd columns
+    {{1,1}, {1,0}, {0,-1}, {-1,0},{-1,1}, {0,1}}
+};
+
+struct Missile{
+    int q; // column
+    int r; // row
+    Direction dir;
+    // 0 = southeast
+    // 1 = northeast
+    // 2 = north
+    // 3 = northwest
+    // 4 = southwest
+    // 5 = south
+    Missile(){
+    }
+    Missile(int q, int r, Direction dir){
+        this->q = q;
+        this->r = r;
+        this->dir = dir;
+    }
+};
+
 struct Hex{
     int q; // columns
     int r; // rows
@@ -55,9 +93,9 @@ struct Hex{
         this->hasMissile = false;
         this->state = hexState::blank;
     }
-    Hex(int a, int b, bool hasMissile, hexState state){
-        this->q = a;
-        this->r = b;
+    Hex(int q, int r, bool hasMissile, hexState state){
+        this->q = q;
+        this->r = r;
         this->hasMissile = hasMissile;
         this->state = state;
     }
@@ -98,15 +136,17 @@ struct HexGrid{
             std::string subRow1 = "";
             std::string subRow2 = "";
             for(int x = 0; x < this->boardWidth; x++){
+                char placeMarker = getHexRep(this->GB[x][y].state);
+                if(this->GB[x][y].hasMissile) placeMarker = 'M';
                 if(!(x%2)){
                     subRow1 += " ";
-                    subRow1.push_back(getHexRep(this->GB[x][y].state));
+                    subRow1.push_back(placeMarker);
                     subRow1 += " ";
                     subRow2 += "   ";
                 }else{
                     subRow1 += "   ";
                     subRow2 += " ";
-                    subRow2.push_back(getHexRep(this->GB[x][y].state));
+                    subRow2.push_back(placeMarker);
                     subRow2 += " ";
                 }
             }
@@ -115,9 +155,31 @@ struct HexGrid{
     }
 };
 
+void updateMissiles(std::vector<Missile>& missiles, HexGrid& grid){
+    for(int i = 0; i < missiles.size(); i++){
+        int q = missiles[i].q;
+        int r = missiles[i].r;
+        int parity = q % 2;
+        Direction dir = missiles[i].dir;
+        coord delta = nDiff[parity][static_cast<int>(dir)];
+
+        int newQ = q + delta.q;
+        int newR = r + delta.r;
+
+        // update the grid and missile info
+        grid.GB[q][r].hasMissile = false;
+        grid.GB[newQ][newR].hasMissile = true;
+        missiles[i].q = newQ;
+        missiles[i].r = newR;
+
+        // std::cout << "Moving from (" << r << ", " << q << ") to (" << newR << ", " << newQ << ")\n";
+        return;
+    }
+}
+
 int main(){
     // delay for game updates
-    auto updateDelay = std::chrono::seconds(3);
+    auto updateDelay = std::chrono::seconds(1);
     auto last_sent = std::chrono::steady_clock::now();
 
     // Make sure to keep the server open until at lease one client has connected.
@@ -161,6 +223,12 @@ int main(){
 
     HexGrid gameBoard = HexGrid(boardWidth, boardHeight);
     gameBoard.initializeDefaultBoard();
+
+    std::vector<Missile> missiles;
+    Missile testMissile = Missile(7, 3, Direction::SE);
+    // raw update to game board now, need function to handle when multiple missiles are created
+    gameBoard.GB[7][3].hasMissile = true;
+    missiles.push_back(testMissile);
 
     // testing printing the game board
     gameBoard.printGrid();
@@ -236,6 +304,9 @@ int main(){
         }
         auto now = std::chrono::steady_clock::now();
         if(now - last_sent >= updateDelay){
+            // UPDATE THE BOARD
+            updateMissiles(missiles, gameBoard);
+            gameBoard.printGrid();
             // construct json to send to server based on input
             json update_j;
             update_j["type"] = "update";
