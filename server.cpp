@@ -21,7 +21,6 @@ struct ClientInfo{
 };
 
 enum class hexState {player, ground, air, city, destroyed, blank, wall};
-
 char getHexRep(hexState myHex){
     switch(myHex){
         case hexState::air:
@@ -48,10 +47,6 @@ char getHexRep(hexState myHex){
     return '~';
 }
 
-struct coord{
-    int q;
-    int r;
-};
 enum class Direction{
     SE = 0,
     NE = 1,
@@ -60,52 +55,72 @@ enum class Direction{
     SW = 4,
     S = 5
 };
-const coord nDiff[2][6] = {
-    // even columns
-    {{1,0}, {1,-1}, {0,-1}, {-1,-1}, {-1, 0}, {0, 1}},
-    // odd columns
-    {{1,1}, {1,0}, {0,-1}, {-1,0},{-1,1}, {0,1}}
-};
+struct coord{
+    int q;
+    int r;
 
-struct Missile{
-    int q; // column
-    int r; // row
-    Direction dir;
-    int width;
+};
+const coord nDiff[2][6] = {
     // 0 = southeast
     // 1 = northeast
     // 2 = north
     // 3 = northwest
     // 4 = southwest
     // 5 = south
+
+    // even columns
+    {{1,0}, {1,-1}, {0,-1}, {-1,-1}, {-1, 0}, {0, 1}},
+    // odd columns
+    {{1,1}, {1,0}, {0,-1}, {-1,0},{-1,1}, {0,1}}
+};
+coord getN(coord cd, Direction dir){
+    int parity = cd.q % 2;
+
+    coord delta = nDiff[parity][static_cast<int>(dir)];
+    delta.q += cd.q;
+    delta.r += cd.r;
+
+    return delta;
+}
+
+struct Missile{
+    coord cd;
+    // int q; // column
+    // int r; // row
+    Direction dir;
+    int width;
     Missile(){
     }
     Missile(int q, int r, Direction dir){
-        this->q = q;
-        this->r = r;
+        this->cd = {q, r};
+        // this->q = q;
+        // this->r = r;
         this->dir = dir;
         this->width = 1;
     }
 };
 
 struct Hex{
-    int q; // columns
-    int r; // rows
+    coord cd;
+    // int q; // columns
+    // int r; // rows
     bool hasMissile;
     hexState state;
 
     bool operator==(const Hex& other) const{
-        return (q == other.q && r == other.r);
+        return (this->cd.q == other.cd.q && this->cd.r == other.cd.r);
     }
     Hex(){
-        this->q = 0;
-        this->r = 0;
+        this->cd = {0, 0};
+        // this->q = 0;
+        // this->r = 0;
         this->hasMissile = false;
         this->state = hexState::blank;
     }
     Hex(int q, int r, bool hasMissile, hexState state){
-        this->q = q;
-        this->r = r;
+        this->cd = {q, r};
+        // this->q = q;
+        // this->r = r;
         this->hasMissile = hasMissile;
         this->state = state;
     }
@@ -183,11 +198,31 @@ struct HexGrid{
             std::cout << subRow1 << std::endl << subRow2 << std::endl;
         }
     }
+    std::vector<coord> getRingCoords(int radius, coord cd){
+        std::vector<coord> ringCoords;
+        if(radius == 0){
+            ringCoords.push_back(cd);
+            return ringCoords;
+        }
+        // move out 'radius' units from the hex
+        for(int i = 0; i < radius; i++){
+            cd = getN(cd, Direction::SE);
+        }
+        return ringCoords;
+    }
+    void destroyHex(coord cd){
+        this->GB[cd.q][cd.r].state = hexState::destroyed;
+    }
+    void destroyRadius(int radius, coord cd){
+        std::vector<Hex> ring;
+        coord it = {cd.q, cd.r};
+        return;
+    }
 };
 
 void explode(Missile& missile, HexGrid& grid){
     // get all six neighbor coords
-    int parity = missile.q%2;
+    int parity = missile.cd.q % 2;
     coord deltaSE = nDiff[parity][static_cast<int>(Direction::SE)];
     coord deltaNE = nDiff[parity][static_cast<int>(Direction::NE)];
     coord deltaN = nDiff[parity][static_cast<int>(Direction::N)];
@@ -195,59 +230,60 @@ void explode(Missile& missile, HexGrid& grid){
     coord deltaSW = nDiff[parity][static_cast<int>(Direction::SW)];
     coord deltaS = nDiff[parity][static_cast<int>(Direction::S)];
 
-    if(missile.r == grid.boardHeight-1){ // bottom
+    if(missile.cd.r == grid.boardHeight-1){ // bottom
         std::cout << "[DEBUG] Bottom collision detected\n";
-        grid.GB[missile.q][missile.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaN.q][missile.r+deltaN.r].state = hexState::destroyed;
-        if(missile.q == grid.boardWidth-1){ // bottom right
-            grid.GB[missile.q+deltaSW.q][missile.r+deltaSW.r].state = hexState::destroyed;
-            grid.GB[missile.q+deltaNW.q][missile.r+deltaNW.r].state = hexState::destroyed;
-        }else if(missile.q == 0){ // bottom left
-            grid.GB[missile.q+deltaSE.q][missile.r+deltaSE.r].state = hexState::destroyed;
-            grid.GB[missile.q+deltaNE.q][missile.r+deltaNE.r].state = hexState::destroyed;
+        grid.destroyHex(missile.cd);
+        // grid.GB[missile.cd.q][missile.cd.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
+        if(missile.cd.q == grid.boardWidth-1){ // bottom right
+            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
+        }else if(missile.cd.q == 0){ // bottom left
+            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
         }else{ // bottom only
-            grid.GB[missile.q+deltaNE.q][missile.r+deltaNE.r].state = hexState::destroyed;
-            grid.GB[missile.q+deltaNW.q][missile.r+deltaNW.r].state = hexState::destroyed;
-            if(!(missile.q%2)){ // even column only
-                grid.GB[missile.q+deltaSW.q][missile.r+deltaSW.r].state = hexState::destroyed;
-                grid.GB[missile.q+deltaSE.q][missile.r+deltaSE.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
+            if(!(missile.cd.q%2)){ // even column only
+                grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
+                grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
             }
         }
-    }else if(missile.r == 0){ // top collision
+    }else if(missile.cd.r == 0){ // top collision
         std::cout << "[DEBUG] Top collision detected\n";
-        grid.GB[missile.q+missile.q][missile.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaS.q][missile.r+deltaS.r].state = hexState::destroyed;
-        if(missile.q == grid.boardWidth-1){ // top right
-            grid.GB[missile.q+deltaSW.q][missile.r+deltaSW.r].state = hexState::destroyed;
-        }else if(missile.q == 0){ // top left
-            grid.GB[missile.q+deltaSE.q][missile.r+deltaSE.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q][missile.cd.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
+        if(missile.cd.q == grid.boardWidth-1){ // top right
+            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
+        }else if(missile.cd.q == 0){ // top left
+            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
         }else{ // top
-            grid.GB[missile.q+deltaSE.q][missile.r+deltaSE.r].state = hexState::destroyed;
-            grid.GB[missile.q+deltaSW.q][missile.r+deltaSW.r].state = hexState::destroyed;
-            if(missile.q%2){ // odd column only
-                grid.GB[missile.q+deltaNW.q][missile.r+deltaNW.r].state = hexState::destroyed;
-                grid.GB[missile.q+deltaNE.q][missile.r+deltaNE.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
+            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
+            if(missile.cd.q%2){ // odd column only
+                grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
+                grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
             }
         }
-    }else if(missile.q == grid.boardWidth-1){ // right collision
+    }else if(missile.cd.q == grid.boardWidth-1){ // right collision
         std::cout << "[DEBUG] Right collision detected\n";
-        grid.GB[missile.q+deltaS.q][missile.r+deltaS.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaSW.q][missile.r+deltaSW.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaNW.q][missile.r+deltaNW.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaN.q][missile.r+deltaN.r].state = hexState::destroyed;
-    }else if(missile.q == 0){ // left collision
+        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
+    }else if(missile.cd.q == 0){ // left collision
         std::cout << "[DEBUG] Left collision detected\n";
-        grid.GB[missile.q+deltaS.q][missile.r+deltaS.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaSE.q][missile.r+deltaSE.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaNE.q][missile.r+deltaNE.r].state = hexState::destroyed;
-        grid.GB[missile.q+deltaN.q][missile.r+deltaN.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
+        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
     }
 }
 
 void updateMissiles(std::vector<Missile>& missiles, HexGrid& grid){
     for(int i = 0; i < missiles.size(); i++){
-        int q = missiles[i].q;
-        int r = missiles[i].r;
+        int q = missiles[i].cd.q;
+        int r = missiles[i].cd.r;
         int parity = q % 2;
         Direction dir = missiles[i].dir;
         coord delta = nDiff[parity][static_cast<int>(dir)];
@@ -268,13 +304,13 @@ void updateMissiles(std::vector<Missile>& missiles, HexGrid& grid){
         }
 
         // update the missile position first
-        missiles[i].q = newQ;
-        missiles[i].r = newR;
+        missiles[i].cd.q = newQ;
+        missiles[i].cd.r = newR;
 
         grid.GB[q][r].hasMissile = false;
         grid.GB[newQ][newR].hasMissile = true;
 
-        std::cout << "[DEBUG] New Missile position: " << missiles[i].q << ", " << missiles[i].r << "\n";
+        std::cout << "[DEBUG] New Missile position: " << missiles[i].cd.q << ", " << missiles[i].cd.r << "\n";
 
         // detect collision and remove missile
         switch(grid.GB[newQ][newR].state){
@@ -304,7 +340,7 @@ void updateMissiles(std::vector<Missile>& missiles, HexGrid& grid){
 
 int main(){
     // delay for game updates
-    auto updateDelay = std::chrono::seconds(1);
+    auto updateDelay = std::chrono::milliseconds(500);
     auto last_sent = std::chrono::steady_clock::now();
 
     // Make sure to keep the server open until at lease one client has connected.
