@@ -126,13 +126,17 @@ struct HexGrid{
     int boardWidth;
     int boardHeight;
     std::vector<std::vector<Hex>> GB;
+    std::vector<Missile> missiles;
 
     HexGrid(int w, int h){
         this->boardWidth = w;
         this->boardHeight = h;
+        this->GB = {};
+        this->missiles = {};
     }
     void initializeDefaultBoard(){
         this->GB.resize(boardWidth, std::vector<Hex>(boardHeight));
+        this->missiles = {};
         for(int y = 0; y < this->boardHeight; y++){
             for(int x = 0; x < this->boardWidth; x++){
                 Hex newHex;
@@ -214,120 +218,122 @@ struct HexGrid{
         coord it = {cd.q, cd.r};
         return;
     }
+    void explode(int index){
+        // get all six neighbor coords
+        int parity = this->missiles[index].cd.q % 2;
+        coord deltaSE = nDiff[parity][static_cast<int>(Direction::SE)];
+        coord deltaNE = nDiff[parity][static_cast<int>(Direction::NE)];
+        coord deltaN = nDiff[parity][static_cast<int>(Direction::N)];
+        coord deltaNW = nDiff[parity][static_cast<int>(Direction::NW)];
+        coord deltaSW = nDiff[parity][static_cast<int>(Direction::SW)];
+        coord deltaS = nDiff[parity][static_cast<int>(Direction::S)];
+
+        int mQ = this->missiles[index].cd.q;
+        int mR = this->missiles[index].cd.r;
+
+        if(mR == this->boardHeight-1){ // bottom
+            std::cout << "[DEBUG] Bottom collision detected\n";
+            this->destroyHex(this->missiles[index].cd);
+            // this->GB[mQ][mR].state = hexState::destroyed;
+            this->GB[mQ+deltaN.q][mR+deltaN.r].state = hexState::destroyed;
+            if(mQ == this->boardWidth-1){ // bottom right
+                this->GB[mQ+deltaSW.q][mR+deltaSW.r].state = hexState::destroyed;
+                this->GB[mQ+deltaNW.q][mR+deltaNW.r].state = hexState::destroyed;
+            }else if(mQ == 0){ // bottom left
+                this->GB[mQ+deltaSE.q][mR+deltaSE.r].state = hexState::destroyed;
+                this->GB[mQ+deltaNE.q][mR+deltaNE.r].state = hexState::destroyed;
+            }else{ // bottom only
+                this->GB[mQ+deltaNE.q][mR+deltaNE.r].state = hexState::destroyed;
+                this->GB[mQ+deltaNW.q][mR+deltaNW.r].state = hexState::destroyed;
+                if(!(mQ%2)){ // even column only
+                    this->GB[mQ+deltaSW.q][mR+deltaSW.r].state = hexState::destroyed;
+                    this->GB[mQ+deltaSE.q][mR+deltaSE.r].state = hexState::destroyed;
+                }
+            }
+        }else if(mR == 0){ // top collision
+            std::cout << "[DEBUG] Top collision detected\n";
+            this->GB[mQ][mR].state = hexState::destroyed;
+            this->GB[mQ+deltaS.q][mR+deltaS.r].state = hexState::destroyed;
+            if(mQ == this->boardWidth-1){ // top right
+                this->GB[mQ+deltaSW.q][mR+deltaSW.r].state = hexState::destroyed;
+            }else if(mQ == 0){ // top left
+                this->GB[mQ+deltaSE.q][mR+deltaSE.r].state = hexState::destroyed;
+            }else{ // top
+                this->GB[mQ+deltaSE.q][mR+deltaSE.r].state = hexState::destroyed;
+                this->GB[mQ+deltaSW.q][mR+deltaSW.r].state = hexState::destroyed;
+                if(mQ%2){ // odd column only
+                    this->GB[mQ+deltaNW.q][mR+deltaNW.r].state = hexState::destroyed;
+                    this->GB[mQ+deltaNE.q][mR+deltaNE.r].state = hexState::destroyed;
+                }
+            }
+        }else if(mQ == this->boardWidth-1){ // right collision
+            std::cout << "[DEBUG] Right collision detected\n";
+            this->GB[mQ+deltaS.q][mR+deltaS.r].state = hexState::destroyed;
+            this->GB[mQ+deltaSW.q][mR+deltaSW.r].state = hexState::destroyed;
+            this->GB[mQ+deltaNW.q][mR+deltaNW.r].state = hexState::destroyed;
+            this->GB[mQ+deltaN.q][mR+deltaN.r].state = hexState::destroyed;
+        }else if(mQ == 0){ // left collision
+            std::cout << "[DEBUG] Left collision detected\n";
+            this->GB[mQ+deltaS.q][mR+deltaS.r].state = hexState::destroyed;
+            this->GB[mQ+deltaSE.q][mR+deltaSE.r].state = hexState::destroyed;
+            this->GB[mQ+deltaNE.q][mR+deltaNE.r].state = hexState::destroyed;
+            this->GB[mQ+deltaN.q][mR+deltaN.r].state = hexState::destroyed;
+        }
+    }
+    void updateMissiles(){
+        for(int i = 0; i < this->missiles.size(); i++){
+            int q = this->missiles[i].cd.q;
+            int r = this->missiles[i].cd.r;
+
+            if(this->missiles[i].countDown > 0){
+                this->missiles[i].countDown--;
+            } else{
+                // get coords of new position
+                // delta here means the new coordinates, not change in coords as you would expect
+                coord delta = getN(this->missiles[i].cd, this->missiles[i].dir);
+
+                // correct if this->missiles goes past boundaries
+                if(delta.q >= this->boardWidth){
+                    delta.q = this->boardWidth-1;
+                } else if(delta.r >= this->boardHeight){
+                    delta.r = this->boardHeight-1;
+                }
+                if(delta.q <= 0){
+                    delta.q = 0;
+                } else if(delta.r <= 0){
+                    delta.r = 0;
+                }
+
+                // update the this->missiles position first
+                this->missiles[i].cd.q = delta.q;
+                this->missiles[i].cd.r = delta.r;
+                // update the countdown to reflect new hex
+                this->missiles[i].countDown = this->GB[delta.q][delta.r].stopVal;
+                this->GB[q][r].hasMissile = false;
+
+                std::cout << "[DEBUG] New missiles position: " << this->missiles[i].cd.q << ", " << this->missiles[i].cd.r << "\n";
+
+                // detect collision and remove this->missiles
+                switch(this->GB[delta.q][delta.r].state){
+                    case hexState::city:
+                    case hexState::player:
+                    case hexState::wall:
+                        this->explode(i);
+                        // std::cout << "[DEBUG] made it through explode function\n";
+                        this->missiles.erase(this->missiles.begin() + i);
+                        this->GB[delta.q][delta.r].hasMissile = false;
+                        i--; // adjust index to reflect missing missile
+                        break;
+                    case hexState::air:
+                        this->GB[delta.q][delta.r].hasMissile = true;
+                        break;
+                }
+                // std::cout << "Moving from (" << r << ", " << q << ") to (" << delta.r << ", " << delta.q << ")\n";
+            }
+            return;
+        }
+    }
 };
-
-void explode(Missile& missile, HexGrid& grid){
-    // get all six neighbor coords
-    int parity = missile.cd.q % 2;
-    coord deltaSE = nDiff[parity][static_cast<int>(Direction::SE)];
-    coord deltaNE = nDiff[parity][static_cast<int>(Direction::NE)];
-    coord deltaN = nDiff[parity][static_cast<int>(Direction::N)];
-    coord deltaNW = nDiff[parity][static_cast<int>(Direction::NW)];
-    coord deltaSW = nDiff[parity][static_cast<int>(Direction::SW)];
-    coord deltaS = nDiff[parity][static_cast<int>(Direction::S)];
-
-    if(missile.cd.r == grid.boardHeight-1){ // bottom
-        std::cout << "[DEBUG] Bottom collision detected\n";
-        grid.destroyHex(missile.cd);
-        // grid.GB[missile.cd.q][missile.cd.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
-        if(missile.cd.q == grid.boardWidth-1){ // bottom right
-            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
-            grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
-        }else if(missile.cd.q == 0){ // bottom left
-            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
-            grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
-        }else{ // bottom only
-            grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
-            grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
-            if(!(missile.cd.q%2)){ // even column only
-                grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
-                grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
-            }
-        }
-    }else if(missile.cd.r == 0){ // top collision
-        std::cout << "[DEBUG] Top collision detected\n";
-        grid.GB[missile.cd.q][missile.cd.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
-        if(missile.cd.q == grid.boardWidth-1){ // top right
-            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
-        }else if(missile.cd.q == 0){ // top left
-            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
-        }else{ // top
-            grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
-            grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
-            if(missile.cd.q%2){ // odd column only
-                grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
-                grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
-            }
-        }
-    }else if(missile.cd.q == grid.boardWidth-1){ // right collision
-        std::cout << "[DEBUG] Right collision detected\n";
-        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaSW.q][missile.cd.r+deltaSW.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaNW.q][missile.cd.r+deltaNW.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
-    }else if(missile.cd.q == 0){ // left collision
-        std::cout << "[DEBUG] Left collision detected\n";
-        grid.GB[missile.cd.q+deltaS.q][missile.cd.r+deltaS.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaSE.q][missile.cd.r+deltaSE.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaNE.q][missile.cd.r+deltaNE.r].state = hexState::destroyed;
-        grid.GB[missile.cd.q+deltaN.q][missile.cd.r+deltaN.r].state = hexState::destroyed;
-    }
-}
-
-void updateMissiles(std::vector<Missile>& missiles, HexGrid& grid){
-    for(int i = 0; i < missiles.size(); i++){
-        int q = missiles[i].cd.q;
-        int r = missiles[i].cd.r;
-
-        if(missiles[i].countDown > 0){
-            missiles[i].countDown--;
-        } else{
-            // get coords of new position
-            coord delta = getN(missiles[i].cd, missiles[i].dir);
-
-            // correct if missile goes past boundaries
-            if(delta.q >= grid.boardWidth){
-                delta.q = grid.boardWidth-1;
-            } else if(delta.r >= grid.boardHeight){
-                delta.r = grid.boardHeight-1;
-            }
-            if(delta.q <= 0){
-                delta.q = 0;
-            } else if(delta.r <= 0){
-                delta.r = 0;
-            }
-
-            // update the missile position first
-            missiles[i].cd.q = delta.q;
-            missiles[i].cd.r = delta.r;
-            // update the countdown to reflect new hex
-            missiles[i].countDown = grid.GB[delta.q][delta.r].stopVal;
-            grid.GB[q][r].hasMissile = false;
-
-            std::cout << "[DEBUG] New Missile position: " << missiles[i].cd.q << ", " << missiles[i].cd.r << "\n";
-
-            // detect collision and remove missile
-            switch(grid.GB[delta.q][delta.r].state){
-                case hexState::city:
-                case hexState::player:
-                case hexState::wall:
-                    explode(missiles[i], grid);
-                    // std::cout << "[DEBUG] made it through explode function\n";
-                    missiles.erase(missiles.begin() + i);
-                    grid.GB[delta.q][delta.r].hasMissile = false;
-                    i--;
-                    break;
-                case hexState::air:
-                    grid.GB[delta.q][delta.r].hasMissile = true;
-                    break;
-            }
-            // std::cout << "Moving from (" << r << ", " << q << ") to (" << delta.r << ", " << delta.q << ")\n";
-        }
-        return;
-    }
-}
 
 int main(){
     // delay for game updates
@@ -379,10 +385,9 @@ int main(){
     // raw update to game board now, need function to handle when multiple missiles are created
     int mq = 4;
     int mr = 5;
-    std::vector<Missile> missiles;
     Missile testMissile = Missile(mq, mr, gameBoard.GB[mq][mr].stopVal, Direction::SE);
     gameBoard.GB[mq][mr].hasMissile = true;
-    missiles.push_back(testMissile);
+    gameBoard.missiles.push_back(testMissile);
 
     // testing printing the game board
     gameBoard.printGrid();
@@ -459,7 +464,7 @@ int main(){
         auto now = std::chrono::steady_clock::now();
         if(now - last_sent >= updateDelay){
             // UPDATE THE BOARD
-            updateMissiles(missiles, gameBoard);
+            gameBoard.updateMissiles();
             gameBoard.printGrid();
             // construct json to send to server based on input
             json update_j;
