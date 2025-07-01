@@ -59,6 +59,13 @@ struct coord{
     int q;
     int r;
 
+    // Member function equality operator
+    bool operator==(const coord& other) const{
+        return (q == other.q && r == other.r);
+    }
+    bool operator!=(const coord& other) const{
+        return !(q == other.q && r == other.r);
+    }
 };
 const coord nDiff[2][6] = {
     // 0 = southeast
@@ -86,16 +93,18 @@ coord getN(coord cd, Direction dir){
 struct Missile{
     coord cd;
     Direction dir;
-    int width;
-    int countDown;
+    int radius;
+    int speed;
+    int timeLeftOnHex;
 
     Missile(){
     }
-    Missile(int q, int r, int cd, Direction dir){
+    Missile(int q, int r, Direction dir, int radius, int speed, int timeLeftOnHex){
         this->cd = {q, r};
         this->dir = dir;
-        this->countDown = cd;
-        this->width = 3;
+        this->radius = radius;
+        this->speed = speed;
+        this->timeLeftOnHex = timeLeftOnHex;
     }
 };
 
@@ -103,7 +112,7 @@ struct Hex{
     coord cd;
     bool hasMissile;
     hexState state;
-    int stopVal; // travel time through hex
+    int density; // travel time through hex
 
     bool operator==(const Hex& other) const{
         return (this->cd.q == other.cd.q && this->cd.r == other.cd.r);
@@ -112,11 +121,11 @@ struct Hex{
         this->cd = {0, 0};
         this->hasMissile = false;
         this->state = hexState::blank;
-        this->stopVal = 0;
+        this->density = 1;
     }
-    Hex(int q, int r, int sv, bool hasMissile, hexState state){
+    Hex(int q, int r, int density, bool hasMissile, hexState state){
         this->cd = {q, r};
-        this->stopVal = sv;
+        this->density = density;
         this->hasMissile = hasMissile;
         this->state = state;
     }
@@ -148,34 +157,34 @@ struct HexGrid{
                 Hex newHex;
                 if(x == 0 || x == this->boardWidth - 1){
                     if(y == 0){
-                        newHex = Hex(x, y, 0, false, hexState::blank);
+                        newHex = Hex(x, y, 10, false, hexState::blank);
                     } else{
-                        newHex = Hex(x, y, 0, false, hexState::wall);
+                        newHex = Hex(x, y, 10, false, hexState::wall);
                     }
                 }else if(y == this->boardHeight - 1){
                     if(x == boardWidth/2){
-                        newHex = Hex(x, y, 0, false, hexState::player);
+                        newHex = Hex(x, y, 10, false, hexState::player);
                     }else{
-                        newHex = Hex(x, y, 0, false, hexState::city);
+                        newHex = Hex(x, y, 10, false, hexState::city);
                     }
                 }else if(y == 0){
                     if(x%2){
-                        newHex = Hex(x, y, 0, false, hexState::city);
+                        newHex = Hex(x, y, 10, false, hexState::city);
                     }else{
-                        newHex = Hex(x, y, 0, false, hexState::blank);
+                        newHex = Hex(x, y, 10, false, hexState::blank);
                     }
                 }else if(y == 1){
                     if(x%2){
-                        newHex = Hex(x, y, 0, false, hexState::air);
+                        newHex = Hex(x, y, 1, false, hexState::air);
                     }else{
                         if(x == boardWidth/2){
-                            newHex = Hex(x, y, 0, false, hexState::player);
+                            newHex = Hex(x, y, 10, false, hexState::player);
                         }else{
-                            newHex = Hex(x, y, 0, false, hexState::city);
+                            newHex = Hex(x, y, 10, false, hexState::city);
                         }
                     }
                 } else{
-                    newHex = Hex(x, y, 0, false, hexState::air);
+                    newHex = Hex(x, y, 1, false, hexState::air);
                 }
                 this->GB[x][y] = newHex;
             }
@@ -226,7 +235,7 @@ struct HexGrid{
     }
     std::vector<coord> getCircleCoords(int radius, coord cd){
         std::vector<coord> circleCoords;
-        for(int i = 0; i < radius; i++){
+        for(int i = 0; i <= radius; i++){
             std::vector<coord> tmpRing = getRingCoords(i, cd);
             circleCoords.insert(circleCoords.end(), tmpRing.begin(), tmpRing.end());
         }
@@ -253,62 +262,55 @@ struct HexGrid{
     }
     // gather all the coordinates relevant to the explosion, hand over to destroy function
     void detonate(int index){
-        std::vector<coord> destroyCoords = getCircleCoords(this->missiles[index].width, this->missiles[index].cd);
+        std::vector<coord> destroyCoords = getCircleCoords(this->missiles[index].radius, this->missiles[index].cd);
         this->destroyArea(destroyCoords);
         return;
     }
     void updateMissiles(){
         for(int i = 0; i < this->missiles.size(); i++){
-            int q = this->missiles[i].cd.q;
-            int r = this->missiles[i].cd.r;
-
-            if(this->missiles[i].countDown > 0){
-                this->missiles[i].countDown--;
-            } else{
-                // get coords of new position
-                // delta here means the new coordinates, not change in coords as you would expect
-                coord delta = getN(this->missiles[i].cd, this->missiles[i].dir);
-
-                // correct if this->missiles goes past boundaries
-                if(delta.q >= this->boardWidth){
-                    delta.q = this->boardWidth-1;
-                } else if(delta.r >= this->boardHeight){
-                    delta.r = this->boardHeight-1;
+            int moves = this->missiles[i].speed;
+            coord curPOS = this->missiles[i].cd;
+            coord newPOS = this->missiles[i].cd;
+            while(moves > 0){
+                std::cout << "[DEBUG] Current moves left for missile [" << i << "]: " << moves << "\n";
+                if(moves >= this->missiles[i].timeLeftOnHex){
+                    moves -= this->missiles[i].timeLeftOnHex;
+                    newPOS = getN(this->missiles[i].cd, this->missiles[i].dir);
+                    // correct if this->missiles goes past boundaries
+                    if(newPOS.q > this->boardWidth || newPOS.q < 0 || newPOS.r > this->boardHeight || newPOS.r < 0){
+                        std::cout << "[DEBUG] Missile attempted to go out of bounds, rubberbanded back to board\n";
+                        newPOS = curPOS;
+                    }
+                        std::cout << "[DEBUG] curPOS: [" << curPOS.q << "," << curPOS.r << "], hasMissile: " << this->GB[curPOS.q][curPOS.r].hasMissile << "\n";
+                    // update the missiles position
+                    this->missiles[i].cd.q = newPOS.q;
+                    this->missiles[i].cd.r = newPOS.r;
+                    this->missiles[i].timeLeftOnHex = this->GB[newPOS.q][newPOS.r].density;
+                    this->GB[curPOS.q][curPOS.r].hasMissile = false;
+                    this->GB[newPOS.q][newPOS.r].hasMissile = true;
+                    // detect collision and remove this->missiles
+                    switch(this->GB[newPOS.q][newPOS.r].state){
+                        case hexState::city:
+                        case hexState::player:
+                        case hexState::wall:
+                            this->detonate(i);
+                            this->missiles.erase(this->missiles.begin() + i);
+                            this->GB[newPOS.q][newPOS.r].hasMissile = false;
+                            moves = 0;
+                            i--; // adjust index to reflect missing missile
+                            break; 
+                        case hexState::air: 
+                            break; 
+                        default: 
+                            break;
+                    }
+                    curPOS = newPOS;
+                } else{
+                    this->missiles[i].timeLeftOnHex -= moves;
+                    moves = 0;
                 }
-                if(delta.q <= 0){
-                    delta.q = 0;
-                } else if(delta.r <= 0){
-                    delta.r = 0;
-                }
-
-                // update the missiles position first
-                this->missiles[i].cd.q = delta.q;
-                this->missiles[i].cd.r = delta.r;
-                // update the countdown to reflect new hex
-                // countdown, again, meaning the time to move to next hex, not an explosion countdown
-                this->missiles[i].countDown = this->GB[delta.q][delta.r].stopVal;
-                this->GB[q][r].hasMissile = false;
-
                 std::cout << "[DEBUG] New missiles position: " << this->missiles[i].cd.q << ", " << this->missiles[i].cd.r << "\n";
-
-                // detect collision and remove this->missiles
-                switch(this->GB[delta.q][delta.r].state){
-                    case hexState::city:
-                    case hexState::player:
-                    case hexState::wall:
-                        this->detonate(i);
-                        // std::cout << "[DEBUG] made it through detonate function\n";
-                        this->missiles.erase(this->missiles.begin() + i);
-                        this->GB[delta.q][delta.r].hasMissile = false;
-                        i--; // adjust index to reflect missing missile
-                        break;
-                    case hexState::air:
-                        this->GB[delta.q][delta.r].hasMissile = true;
-                        break;
-                }
-                // std::cout << "Moving from (" << r << ", " << q << ") to (" << delta.r << ", " << delta.q << ")\n";
             }
-            return;
         }
     }
 };
@@ -363,7 +365,9 @@ int main(){
     // raw update to game board now, need function to handle when multiple missiles are created
     int mq = 4;
     int mr = 5;
-    Missile testMissile = Missile(mq, mr, gameBoard.GB[mq][mr].stopVal, Direction::SE);
+    int radius = 5;
+    int speed = 2;
+    Missile testMissile = Missile(mq, mr, Direction::SE, radius, speed, gameBoard.GB[mq][mr].density);
     gameBoard.GB[mq][mr].hasMissile = true;
     gameBoard.missiles.push_back(testMissile);
 
