@@ -272,16 +272,16 @@ struct HexGrid{
             coord curPOS = this->missiles[i].cd;
             coord newPOS = this->missiles[i].cd;
             while(moves > 0){
-                std::cout << "[DEBUG] Current moves left for missile [" << i << "]: " << moves << "\n";
+                // std::cout << "[DEBUG] Current moves left for missile [" << i << "]: " << moves << "\n";
                 if(moves >= this->missiles[i].timeLeftOnHex){
                     moves -= this->missiles[i].timeLeftOnHex;
                     newPOS = getN(this->missiles[i].cd, this->missiles[i].dir);
                     // correct if this->missiles goes past boundaries
                     if(newPOS.q > this->boardWidth || newPOS.q < 0 || newPOS.r > this->boardHeight || newPOS.r < 0){
-                        std::cout << "[DEBUG] Missile attempted to go out of bounds, rubberbanded back to board\n";
+                        // std::cout << "[DEBUG] Missile attempted to go out of bounds, rubberbanded back to board\n";
                         newPOS = curPOS;
                     }
-                        std::cout << "[DEBUG] curPOS: [" << curPOS.q << "," << curPOS.r << "], hasMissile: " << this->GB[curPOS.q][curPOS.r].hasMissile << "\n";
+                    // std::cout << "[DEBUG] curPOS: [" << curPOS.q << "," << curPOS.r << "], hasMissile: " << this->GB[curPOS.q][curPOS.r].hasMissile << "\n";
                     // update the missiles position
                     this->missiles[i].cd.q = newPOS.q;
                     this->missiles[i].cd.r = newPOS.r;
@@ -309,7 +309,7 @@ struct HexGrid{
                     this->missiles[i].timeLeftOnHex -= moves;
                     moves = 0;
                 }
-                std::cout << "[DEBUG] New missiles position: " << this->missiles[i].cd.q << ", " << this->missiles[i].cd.r << "\n";
+                // std::cout << "[DEBUG] New missiles position: " << this->missiles[i].cd.q << ", " << this->missiles[i].cd.r << "\n";
             }
         }
     }
@@ -357,7 +357,7 @@ int main(){
 
     // game logic and board creation
     const int boardWidth = 17;
-    const int boardHeight = 10;
+    const int boardHeight = 15;
 
     HexGrid gameBoard = HexGrid(boardWidth, boardHeight);
     gameBoard.initializeDefaultBoard();
@@ -365,9 +365,9 @@ int main(){
     // raw update to game board now, need function to handle when multiple missiles are created
     int mq = 4;
     int mr = 5;
-    int radius = 5;
-    int speed = 2;
-    Missile testMissile = Missile(mq, mr, Direction::SE, radius, speed, gameBoard.GB[mq][mr].density);
+    int radius = 1;
+    int speed = 3;
+    Missile testMissile = Missile(mq, mr, Direction::S, radius, speed, gameBoard.GB[mq][mr].density);
     gameBoard.GB[mq][mr].hasMissile = true;
     gameBoard.missiles.push_back(testMissile);
 
