@@ -1,4 +1,4 @@
-// TODO: add a countdown to the missiles so they can detonate without hitting structure?
+// TODO: future update: add a countdown to the missiles so they can detonate without hitting structure?
 
 #include <cstring>
 #include <netinet/in.h>
@@ -15,9 +15,13 @@
 
 using json = nlohmann::json;
 
+int playerCount = 0;
+bool anyClientEverConnected = false;
+
 struct ClientInfo{
     int fd;
     char last_input;
+    int playerNum;
 };
 
 enum class hexState {player, ground, air, city, destroyed, blank, wall};
@@ -45,7 +49,7 @@ char getHexRep(hexState myHex){
             return '~';
     }
     return '~';
-}
+};
 
 enum class Direction{
     SE = 0,
@@ -88,7 +92,7 @@ coord getN(coord cd, Direction dir){
     delta.r += cd.r;
 
     return delta;
-}
+};
 
 struct Missile{
     coord cd;
@@ -110,9 +114,11 @@ struct Missile{
 
 struct Hex{
     coord cd;
-    bool hasMissile;
     hexState state;
-    int density; // travel time through hex
+    int density; // time to travel through hex
+
+    bool hasMissile;
+    int missileIndex;
 
     bool operator==(const Hex& other) const{
         return (this->cd.q == other.cd.q && this->cd.r == other.cd.r);
@@ -120,6 +126,7 @@ struct Hex{
     Hex(){
         this->cd = {0, 0};
         this->hasMissile = false;
+        this->missileIndex = -1;
         this->state = hexState::blank;
         this->density = 1;
     }
@@ -288,6 +295,8 @@ struct HexGrid{
                     this->missiles[i].timeLeftOnHex = this->GB[newPOS.q][newPOS.r].density;
                     this->GB[curPOS.q][curPOS.r].hasMissile = false;
                     this->GB[newPOS.q][newPOS.r].hasMissile = true;
+                    this->GB[curPOS.q][curPOS.r].missileIndex = -1;
+                    this->GB[newPOS.q][newPOS.r].missileIndex = i;
                     // detect collision and remove this->missiles
                     switch(this->GB[newPOS.q][newPOS.r].state){
                         case hexState::city:
@@ -296,6 +305,7 @@ struct HexGrid{
                             this->detonate(i);
                             this->missiles.erase(this->missiles.begin() + i);
                             this->GB[newPOS.q][newPOS.r].hasMissile = false;
+                            this->GB[newPOS.q][newPOS.r].missileIndex = -1;
                             moves = 0;
                             i--; // adjust index to reflect missing missile
                             break; 
@@ -315,19 +325,8 @@ struct HexGrid{
     }
 };
 
-int main(){
-    // delay for game updates
-    auto updateDelay = std::chrono::milliseconds(500);
-    auto last_sent = std::chrono::steady_clock::now();
-
-    // Make sure to keep the server open until at lease one client has connected.
-    bool anyClientEverConnected = false;
-
-    // create a vector of buffers for each of the clients
-    std::vector<ClientInfo> clients;
-
+int setUpSockets(int& serverSocket, sockaddr_in& serverAddress, std::vector<ClientInfo>& clients){
     // create server socket
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if(serverSocket < 0){
         perror("socket creation failed");
         return 1;
@@ -336,7 +335,6 @@ int main(){
     setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     // specifying address
-    sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(8080);
     serverAddress.sin_addr.s_addr = INADDR_ANY;
@@ -355,6 +353,59 @@ int main(){
         return 1;
     }
 
+    while(playerCount < 2){
+        std::vector<pollfd> pollFds;
+        pollFds.push_back({serverSocket, POLLIN, 0});
+        for(const auto& client : clients){
+            pollFds.push_back({client.fd, POLLIN, 0});
+        }
+
+        int ret = poll(pollFds.data(), pollFds.size(), 100);
+        if(ret > 0){
+            if(pollFds[0].revents & POLLIN){
+                int newClient = accept(serverSocket, nullptr, nullptr);
+                if(newClient >= 0){
+                    pollFds.push_back({newClient, POLLIN, 0});
+                    clients.push_back({newClient, '\0', playerCount});
+                    anyClientEverConnected = true;
+
+                    json j;
+                    j["type"] = "pnUpdate";
+                    j["playerNum"] = playerCount;
+                    std::string message = j.dump();
+                    send(newClient, message.c_str(), message.size(), 0);
+
+                    playerCount++;
+                }
+            }
+        }
+    }
+    std::cout << "[DEBUG] Two clients added, moving on to game loop\n";
+    std::cout << "[DEBUG] Number of clients: " << clients.size() << std::endl;
+
+// EXTRA STUFF FOR JSON LATER
+    // json j;
+    // j["type"] = "keypress";
+    // j["input"] = std::string(1, input);
+    // std::string message = j.dump();
+    // send(clientSocket, message.c_str(), message.size(), 0);
+    return 0;
+};
+
+
+int main(){
+    // delay for game updates
+    auto updateDelay = std::chrono::milliseconds(1000);
+    auto last_sent = std::chrono::steady_clock::now();
+
+    // create a vector of buffers for each of the clients
+    std::vector<ClientInfo> clients;
+
+    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in serverAddress;
+    int ss = setUpSockets(serverSocket, serverAddress, clients);
+    if(ss) return 1;
+
     // game logic and board creation
     const int boardWidth = 17;
     const int boardHeight = 15;
@@ -363,16 +414,16 @@ int main(){
     gameBoard.initializeDefaultBoard();
 
     // raw update to game board now, need function to handle when multiple missiles are created
-    int mq = 4;
-    int mr = 5;
-    int radius = 1;
-    int speed = 3;
-    Missile testMissile = Missile(mq, mr, Direction::S, radius, speed, gameBoard.GB[mq][mr].density);
-    gameBoard.GB[mq][mr].hasMissile = true;
-    gameBoard.missiles.push_back(testMissile);
+    // int mq = 4;
+    // int mr = 5;
+    // int radius = 1;
+    // int speed = 2;
+    // Missile testMissile = Missile(mq, mr, Direction::S, radius, speed, gameBoard.GB[mq][mr].density);
+    // gameBoard.GB[mq][mr].hasMissile = true;
+    // gameBoard.missiles.push_back(testMissile);
 
     // testing printing the game board
-    gameBoard.printGrid();
+    // gameBoard.printGrid();
 
     // GAME LOOP
     while(true){
@@ -390,6 +441,7 @@ int main(){
                     pollFds.push_back({newClient, POLLIN, 0});
                     clients.push_back({newClient, '\0'});
                     anyClientEverConnected = true;
+                    playerCount++;
                 }
             }
             for(int i = pollFds.size() - 1; i >= 1; i--){
@@ -439,7 +491,7 @@ int main(){
             }
         }
         // close the server if no clients remain
-        if(anyClientEverConnected && clients.empty() == 1){
+        if(anyClientEverConnected && clients.empty()){
             std::cout << "[INFO] All clients disconnected. Shutting down server.\n";
             break;
         }
