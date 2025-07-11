@@ -1,4 +1,5 @@
-// TODO: future update: add a countdown to the missiles so they can detonate without hitting structure?
+// TODO: Have server send the 'game state' to the client so that clients can view/reasonably play the game
+// once more functionality is added i.e. firing rockets, creating barrier, etc...
 
 #include <cstring>
 #include <netinet/in.h>
