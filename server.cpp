@@ -1,6 +1,8 @@
 // TODO: Have server send the 'game state' to the client so that clients can view/reasonably play the game
 // once more functionality is added i.e. firing rockets, creating barrier, etc...
 
+// TODO: Clean up the client/server connect/disconnect functionality
+
 #include <cstring>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -18,12 +20,9 @@ using json = nlohmann::json;
 
 int playerCount = 0;
 bool anyClientEverConnected = false;
+auto updateDelay = std::chrono::milliseconds(1000);
+auto last_sent = std::chrono::steady_clock::now();
 
-struct ClientInfo{
-    int fd;
-    char last_input;
-    int playerNum;
-};
 
 enum class hexState {player, ground, air, city, destroyed, blank, wall};
 char getHexRep(hexState myHex){
@@ -95,6 +94,15 @@ coord getN(coord cd, Direction dir){
     return delta;
 };
 
+struct Client{
+    int fd;
+    int playerNum;
+    coord cd;
+
+    // only for testing
+    char last_input;
+};
+
 struct Missile{
     coord cd;
     Direction dir;
@@ -144,6 +152,7 @@ struct HexGrid{
     int boardHeight;
     std::vector<std::vector<Hex>> GB;
     std::vector<Missile> missiles;
+    std::vector<Client> clients;
 
     HexGrid(int w, int h){
         this->boardWidth = w;
@@ -324,9 +333,41 @@ struct HexGrid{
             }
         }
     }
+    void heavyUpdate(){
+        if(anyClientEverConnected && clients.empty()){
+            std::cout << "[INFO] All clients disconnected.\n";
+            // break;
+        }
+        this->updateMissiles();
+        this->printGrid();
+        json update_j;
+        update_j["type"] = "gameplayUpdate";
+        update_j["clients"] = json::array();
+        for(const auto& client : clients){
+            json client_info;
+            client_info["id"] = client.fd;
+            client_info["last_input"] = std::string(1, client.last_input);
+            update_j["clients"].push_back(client_info);
+        }
+        std::string sj = update_j.dump();
+        for(auto& client : clients){
+            send(client.fd, sj.c_str(), sj.size(), 0);
+        }
+    }
+    void lightUpdate(){
+    }
 };
 
-int setUpSockets(int& serverSocket, sockaddr_in& serverAddress, std::vector<ClientInfo>& clients){
+int setUpSocketsForLoop(int& serverSocket, std::vector<pollfd>& pollFds, std::vector<Client>& clients){
+    pollFds.push_back({serverSocket, POLLIN, 0});
+    for(const auto& client : clients){
+        pollFds.push_back({client.fd, POLLIN, 0});
+    }
+
+    return(poll(pollFds.data(), pollFds.size(), 100));
+};
+
+int setUpSockets(int& serverSocket, sockaddr_in& serverAddress, std::vector<Client>& clients){
     // create server socket
     if(serverSocket < 0){
         perror("socket creation failed");
@@ -354,14 +395,9 @@ int setUpSockets(int& serverSocket, sockaddr_in& serverAddress, std::vector<Clie
         return 1;
     }
 
-    while(playerCount < 2){
+    while(playerCount < 1){
         std::vector<pollfd> pollFds;
-        pollFds.push_back({serverSocket, POLLIN, 0});
-        for(const auto& client : clients){
-            pollFds.push_back({client.fd, POLLIN, 0});
-        }
-
-        int ret = poll(pollFds.data(), pollFds.size(), 100);
+        int ret = setUpSocketsForLoop(serverSocket, pollFds, clients);
         if(ret > 0){
             if(pollFds[0].revents & POLLIN){
                 int newClient = accept(serverSocket, nullptr, nullptr);
@@ -384,63 +420,31 @@ int setUpSockets(int& serverSocket, sockaddr_in& serverAddress, std::vector<Clie
     std::cout << "[DEBUG] Two clients added, moving on to game loop\n";
     std::cout << "[DEBUG] Number of clients: " << clients.size() << std::endl;
 
-// EXTRA STUFF FOR JSON LATER
-    // json j;
-    // j["type"] = "keypress";
-    // j["input"] = std::string(1, input);
-    // std::string message = j.dump();
-    // send(clientSocket, message.c_str(), message.size(), 0);
     return 0;
 };
 
-
 int main(){
-    // delay for game updates
-    auto updateDelay = std::chrono::milliseconds(1000);
-    auto last_sent = std::chrono::steady_clock::now();
-
-    // create a vector of buffers for each of the clients
-    std::vector<ClientInfo> clients;
-
-    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in serverAddress;
-    int ss = setUpSockets(serverSocket, serverAddress, clients);
-    if(ss) return 1;
-
-    // game logic and board creation
     const int boardWidth = 17;
     const int boardHeight = 15;
-
     HexGrid gameBoard = HexGrid(boardWidth, boardHeight);
     gameBoard.initializeDefaultBoard();
 
-    // raw update to game board now, need function to handle when multiple missiles are created
-    // int mq = 4;
-    // int mr = 5;
-    // int radius = 1;
-    // int speed = 2;
-    // Missile testMissile = Missile(mq, mr, Direction::S, radius, speed, gameBoard.GB[mq][mr].density);
-    // gameBoard.GB[mq][mr].hasMissile = true;
-    // gameBoard.missiles.push_back(testMissile);
-
-    // testing printing the game board
-    // gameBoard.printGrid();
+    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in serverAddress;
+    int ss = setUpSockets(serverSocket, serverAddress, gameBoard.clients);
+    if(ss) return 1;
 
     // GAME LOOP
     while(true){
         std::vector<pollfd> pollFds;
-        pollFds.push_back({serverSocket, POLLIN, 0});
-        for(const auto& client : clients){
-            pollFds.push_back({client.fd, POLLIN, 0});
-        }
-        int ret = poll(pollFds.data(), pollFds.size(), 100);
+        int ret = setUpSocketsForLoop(serverSocket, pollFds, gameBoard.clients);
         if(ret > 0){
             // check for a new connection
             if(pollFds[0].revents & POLLIN){
                 int newClient = accept(serverSocket, nullptr, nullptr);
                 if(newClient >= 0){
                     pollFds.push_back({newClient, POLLIN, 0});
-                    clients.push_back({newClient, '\0'});
+                    gameBoard.clients.push_back({newClient, '\0'});
                     anyClientEverConnected = true;
                     playerCount++;
                 }
@@ -451,21 +455,21 @@ int main(){
                     std::cout << "[INFO] Client disconnected (poll flags): " << pollFds[i].fd << "\n";
                     close(pollFds[i].fd);
                     pollFds.erase(pollFds.begin() + i);
-                    clients.erase(clients.begin() + (i-1));
+                    gameBoard.clients.erase(gameBoard.clients.begin() + (i-1));
                     continue;
                 }
                 // check for readable input
                 if(pollFds[i].revents & POLLIN){
                     // Get input from client
                     int clientIndex = i-1;
-                    ClientInfo client = clients[clientIndex];
+                    Client client = gameBoard.clients[clientIndex];
                     char tempBuffer[1024] = {0};
                     int bytes = read(client.fd, tempBuffer, sizeof(tempBuffer) - 1);
                     if(bytes <= 0){
                         std::cout << "[INFO] Client disconnected (read failure): " << client.fd << "\n";
                         close(client.fd);
                         pollFds.erase(pollFds.begin() + i);
-                        clients.erase(clients.begin() + clientIndex);
+                        gameBoard.clients.erase(gameBoard.clients.begin() + clientIndex);
                         continue;
                     }
                     if(bytes > 0){
@@ -477,7 +481,7 @@ int main(){
                             auto it = j.find("input");
                             if(it != j.end() && it->is_string()){
                                 std::string val = *it;
-                                clients[clientIndex].last_input = val[0];
+                                gameBoard.clients[clientIndex].last_input = val[0];
                                 std::cout << "[INFO] Client " << client.fd << " Pressed " << val[0] << "\n";
                             } else{
                                 std::cout << "[WARNING] Unkown message format.\n";
@@ -487,36 +491,15 @@ int main(){
                             std::cerr << "[ERROR] JSON parse error: " << e.what() << "\n";
                         }
                     }
-                    // std::cout << "[INFO] Client " << i << " Pressed " << buffers[i].data() << "\n";
                 }
             }
         }
-        // close the server if no clients remain
-        if(anyClientEverConnected && clients.empty()){
-            std::cout << "[INFO] All clients disconnected. Shutting down server.\n";
-            break;
-        }
         auto now = std::chrono::steady_clock::now();
         if(now - last_sent >= updateDelay){
-            // UPDATE THE BOARD
-            gameBoard.updateMissiles();
-            gameBoard.printGrid();
-            // construct json to send to server based on input
-            json update_j;
-            update_j["type"] = "update";
-            update_j["clients"] = json::array();
-            for(const auto& client : clients){
-                json client_info;
-                client_info["id"] = client.fd;
-                client_info["last_input"] = std::string(1, client.last_input);
-                update_j["clients"].push_back(client_info);
-                // std::cout << "PUSHING INFO:\nCLIENT: " + std::to_string(client.fd) + "\nLAST_INPUT: " + client.last_input + "\n";
-            }
-            std::string sj = update_j.dump();
-            for(auto& client : clients){
-                send(client.fd, sj.c_str(), sj.size(), 0);
-            }
+            gameBoard.heavyUpdate();
             last_sent = now;
+        } else{
+            gameBoard.lightUpdate();
         }
     }
     close(serverSocket);
