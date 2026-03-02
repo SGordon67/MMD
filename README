@@ -14,8 +14,6 @@ Development overview:
 4. Implement features.
 
 Notes:
-It's my current understanding that the development path I've chosen will lead to the game only running on linux.
-This is a tradeoff I'm willing to make for now, but maybe I will address that in the future.
 Yes, I know there is a LOT of learning and development to get done along the way.
 Each bullet point above is likely it's own project with sub-points that I will define as I dive in.
 
